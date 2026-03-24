@@ -12,6 +12,7 @@ class UserManager:
 class BillingManager:
     def process_invoice(self, invoice): pass
 
+#sad
 class BackupManager:
     def backup_database(self): pass
 
