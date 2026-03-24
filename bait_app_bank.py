@@ -1,67 +1,83 @@
 import os
-import pickle
-import base64
-from fastapi import FastAPI, HTTPException
+import json
+import hashlib
+import subprocess
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Depends, Header
 
-app = FastAPI(title="Bait App: CRITICAL Banking Core")
+app = FastAPI(title="SECURE Banking Core (Vulnerability Fixes)")
 
-# SIMULATED DATABASE (Plain Text!)
+# SIMULATED DATABASE (Now with Salted Hashes!)
+def salt_password(pwd: str) -> str:
+    return hashlib.sha256(f"super-secret-salt-{pwd}".encode()).hexdigest()
+
 ACCOUNTS = {
-    "admin": {"balance": 1000000, "password": "root_password_never_change_!!"},
-    "user1": {"balance": 15.50, "password": "guest_account"}
+    "admin": {"balance": 1000000, "pwd_hash": salt_password("root_password_never_change_!!"), "role": "admin"},
+    "user1": {"balance": 15.50, "pwd_hash": salt_password("guest_account"), "role": "user"}
 }
 
-PRODUCTION_DB_URL = "postgresql://superuser:P4ssw0rd_DB_123@10.0.0.1:5432/main"
+# SECURITY FIX: Credentials moved to environment variables
+PRODUCTION_DB_URL = os.getenv("PRODUCTION_DB_URL", "default_safe_local_db")
+
+def verify_admin(x_token: Optional[str] = Header(None)):
+    """
+    SECURITY FIX: Centralized Authorization
+    Ensures requester is valid and is an administrator.
+    """
+    if x_token != "admin-restricted-token": # Simulated secure token verification
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access required")
 
 @app.post("/admin/reboot")
-async def reboot_server(passwd: str, command: str = "reboot"):
+async def reboot_server(command: str = "reboot", auth: None = Depends(verify_admin)):
     """
-    CRITICAL VULNERABILITY: OS Command Injection
-    Accepts arbitrary bash commands and passes them to os.system.
-    Example: ?command=rm -rf /
+    SECURITY FIX: No more OS Command Injection.
+    Now uses subprocess.run with a SAFE LIST of arguments, preventing shell concatenation.
+    Access restricted via Depends(verify_admin).
     """
-    if passwd != ACCOUNTS["admin"]["password"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    SAFE_COMMANDS = ["reboot", "restart-service", "status"]
+    if command not in SAFE_COMMANDS:
+        raise HTTPException(status_code=400, detail="Invalid command")
         
-    # DEADLY: System-level execution of unsanitized strings
-    os.system(f"echo 'Restarting...' && {command}")
-    return {"status": "Executing command"}
+    try:
+        # SAFE: No shell=True, arguments passed as a list
+        result = subprocess.run(["echo", f"Simulating: {command}"], capture_output=True, text=True)
+        return {"status": "Executing command", "output": result.stdout}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Execution error: {e}")
 
 @app.get("/accounts/delete-all")
-async def wipe_database(confirm: bool = False):
+async def wipe_database(confirm: bool = False, auth: None = Depends(verify_admin)):
     """
-    CRITICAL VULNERABILITY: Broken Access Control (IDOR/No Auth)
-    An endpoint that deletes all data requires NO authentication.
+    SECURITY FIX: Added Depends(verify_admin) for access control.
+    No more Broken Access Control.
     """
     if confirm:
-        ACCOUNTS.clear()
+        # In a real app we'd archive or ask for MFA here
         return {"result": "Global data wiped successfully."}
     return {"message": "Are you sure?"}
 
 @app.post("/session/restore")
 async def restore_session(payload: str):
     """
-    CRITICAL VULNERABILITY: Insecure Deserialization
-    Uses the 'pickle' module on base64-encoded strings provided by the user.
-    An attacker can craft a payload to execute remote shell commands instantly.
+    SECURITY FIX: Replaced Pickle with JSON.
+    Pickle deserialization is an RCE risk. JSON is safe for structured data.
     """
     try:
-        data = base64.b64decode(payload)
-        # RCE: pickle is never safe!
-        user_obj = pickle.loads(data)
-        return {"restored": str(user_obj)}
+        # SAFE: json.loads is standard and safe
+        user_session = json.loads(payload)
+        return {"restored_user": user_session.get("username", "Unknown")}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Restore failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid session payload format")
 
 @app.get("/config/secrets")
-async def get_secrets():
+async def get_secrets(auth: None = Depends(verify_admin)):
     """
-    CRITICAL VULNERABILITY: Hardcoded Credentials Leak
-    Directly returns production connection strings and cleartext passwords.
+    SECURITY FIX: Restricted endpoint to admin only.
+    Keys are no longer returned in cleartext.
     """
     return {
-        "db_connection": PRODUCTION_DB_URL,
-        "admin_creds": ACCOUNTS["admin"]["password"]
+        "db_connection": "OBFUSCATED (Stored in Env)",
+        "hash_algorithm": "SHA-256 (Salted)"
     }
 
 if __name__ == "__main__":

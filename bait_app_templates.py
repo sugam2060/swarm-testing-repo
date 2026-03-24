@@ -15,25 +15,24 @@ def home():
 @app.route("/tip")
 def get_tip():
     """
-    VULNERABILITY: Server-Side Template Injection (SSTI)
-    The 'user' parameter is concatenated directly into a template string 
-    before being rendered by Flask/Jinja2. 
-    An attacker can pass: /tip?user={{7*7}} or /tip?user={{config}}
+    SECURITY FIX: No more Server-Side Template Injection (SSTI).
+    The template is now static, and the user-provided data is passed 
+    as a safe template variable. Jinja2 handles the escaping automatically.
     """
-    user = request.args.get("user", "guest")
-    tip = USER_TIPS.get(user, "No tip available for this user.")
+    user_name = request.args.get("user", "guest")
+    tip = USER_TIPS.get(user_name, "No tip available for this user.")
     
-    # DANGEROUS: Concatenating user input into the template string
-    template = f"""
+    # SAFE: Using a static template string and passing variables for rendering
+    template = """
     <html>
         <body>
-            <h2>Tip for {user}:</h2>
-            <p>{tip}</p>
+            <h2>Tip for {{ user_name }}:</h2>
+            <p>{{ user_tip }}</p>
         </body>
     </html>
     """
     
-    return render_template_string(template)
+    return render_template_string(template, user_name=user_name, user_tip=tip)
 
 if __name__ == "__main__":
     app.run(port=5002)
