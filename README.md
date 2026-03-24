@@ -8,3 +8,5 @@
 # testing thread weaver
 
 # testing thread weaver with checkpointer asd
+
+# testing thread weaver with checkpointer asd and conversational mode
