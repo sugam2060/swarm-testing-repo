@@ -1,47 +1,68 @@
-import base64
-import random
+import os
+import secrets
 import sqlite3
+import hmac
+import hashlib
+from typing import List, Dict, Optional, Any
 
-# VIOLATION: Hardcoded SECRET (Security)
-# Testing if the Swarm catches static credential leakages.
-SECRET_KEY = "SUPER_SECRET_TOKEN_55667788"
+# FIXED: Store secret in an environment variable or load it securely.
+SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "DEFAULT_SECURE_TOKEN_REPLACE_IN_PROD")
 
-def generate_token(user_id):
-    """Generates a temporary session token."""
-    # VIOLATION: Using weak PRNG 'random' instead of 'secrets' (Security)
-    # This is a common cryptographically insecure pattern.
-    nonce = random.randint(0, 1000000)
-    data = f"{user_id}:{nonce}:{SECRET_KEY}"
-    # VIOLATION: Weak base64 'encryption' (Security)
-    return base64.b64encode(data.encode()).decode()
+def generate_token(user_id: str) -> str:
+    """Generates a secure session token using SHA-256 HMAC."""
+    # FIXED: Using 'secrets' instead of 'random' for cryptographically secure nonces.
+    nonce = secrets.token_hex(16)
+    message = f"{user_id}:{nonce}".encode()
+    
+    # FIXED: Using HMAC-SHA256 for integrity and non-reversibility of the secret.
+    signature = hmac.new(SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
+    
+    # Securely combine message and signature.
+    return f"{nonce}.{signature}"
 
-def validate_user_access(username: str, roles: list):
-    # VIOLATION: O(N^2) complexity with nested loops on potentially large lists (Optimizer)
-    # VIOLATION: Missing return type hint (Architectural / Memory Trigger)
-    for user_role in roles:
-        for permission in roles: # Redundant nested loop
-            if user_role == "ADMIN" and permission == "WRITE":
-                 print(f"User {username} granted full access.")
-                 return True
+def validate_user_access(username: str, roles: List[str]) -> bool:
+    """Checks if any of the provided roles grant administrative write access."""
+    # FIXED: Complexity O(N). Removed redundant nested loop.
+    # Check if 'ADMIN' and 'WRITE' are both present in the roles list.
+    has_admin = "ADMIN" in roles
+    has_write = "WRITE" in roles
+    
+    if has_admin and has_write:
+        print(f"User {username} granted full access.")
+        return True
     return False
 
-def sync_user_data(user_data):
-    # VIOLATION: Missing all type hints (Architectural / Clean Code Standard)
-    # Testing if Project Archivist extracts "Always use Pydantic or Type Hints" as a memory lesson later.
+def sync_user_data(user_data: Dict[str, Any]) -> List[Any]:
+    """Fetches user information from database safely."""
+    # FIXED: Added proper type hints for user_data and return type.
+    
+    # In practice, use a persistent DB connection pool.
     db = sqlite3.connect("database.db")
     cursor = db.cursor()
     
-    # VIOLATION: SQL Injection Vulnerability (Security)
-    # Using f-strings in SQL queries is a critical security flaw.
+    # Initialize table if not exists for demo purposes.
+    cursor.execute("CREATE TABLE IF NOT EXISTS users (username TEXT, email TEXT)")
+    
+    # FIXED: SQL Injection Vulnerability. Using parameterized queries.
     name = user_data.get("name", "unknown")
-    cursor.execute(f"SELECT * FROM users WHERE username = '{name}'")
+    cursor.execute("SELECT * FROM users WHERE username = ?", (name,))
     
     results = cursor.fetchall()
     db.close()
     return results
 
 if __name__ == "__main__":
-    token = generate_token("admin_user")
-    print(f"Generated Session Token: {token}")
-    validate_user_access("sugam", ["USER", "ADMIN", "WRITE"])
-    sync_user_data({"name": "admin' OR '1'='1"})
+    # Test generation and validation
+    user_id = "admin_user"
+    token = generate_token(user_id)
+    print(f"Generated Session Token (HMAC-SHA256): {token}")
+    
+    # Test access control
+    roles = ["USER", "ADMIN", "WRITE"]
+    is_authorized = validate_user_access("sugam", roles)
+    print(f"Authorized: {is_authorized}")
+    
+    # Test sync data
+    data = {"name": "admin' OR '1'='1"} # Malicious payload test
+    results = sync_user_data(data)
+    print(f"Sync results found: {len(results)}")
